@@ -58,7 +58,7 @@ class MatrixLayer(Layer):
             dW[:,i] = r
         for j in range(r.shape[0]):
             dW[j,:] *= vin
-        return dW
+        yield dW
     
     def dvin_proj(self, W, vin, r):
         return W[self._dispatcher].T @ r
@@ -85,7 +85,7 @@ class ReluLayer(Layer):
     def dweights_proj(self, W, vin, r):
         dW = np.copy(r)
         dW *= vin * (vin > 0)
-        return dW
+        yield dW
     
     def dvin_proj(self, W, vin, r):
         dv = np.copy(W[self._dispatcher])
@@ -111,7 +111,7 @@ class BiasLayer(Layer):
         return W[self._dispatcher] + vin
     
     def dweights_proj(self, W, vin, r):
-        return np.copy(r)
+        yield np.copy(r)
     
     def dvin_proj(self, W, vin, r):
         return np.copy(r)
@@ -147,11 +147,11 @@ class SequenceLayer(Layer):
         # Backward accumulation of gradients
         gradients = deque()
         right = r
-        for l, h in zip(reversed(self._children), reversed(values[:-1])):
-            gradients.appendleft(l.dweights_proj(W, h, right))
+        for l, h in zip(reversed(self._layers), reversed(values[:-1])):
+            gradients.extend(l.dweights_proj(W, h, right))
             right = l.dvin_proj(W, h, right)
     
-        return list(gradients)
+        yield from gradients
     
     def dvin_proj(self, W, vin, r):
         # Forward propagation of values
@@ -161,7 +161,7 @@ class SequenceLayer(Layer):
     
         # Backward accumulation of gradients
         right = r
-        for l, h in zip(reversed(self._children), reversed(values[:-1])):
+        for l, h in zip(reversed(self._layers), reversed(values[:-1])):
             right = l.dvin_proj(W, h, right)
             
         return right
@@ -186,7 +186,7 @@ class IdentityLayer(Layer):
         yield np.array([0])
     
     def dweights_proj(self, W, vin, r):
-        return np.array([0])
+        yield np.array([0])
     
     def dvin_proj(self, W, vin, r):
         return np.copy(r)
@@ -224,30 +224,35 @@ class ParallelLayer(Layer):
         yield np.random.uniform(-1, 1, (self.nout, self._sequence_a.nout + self._sequence_b.nout))
         
     def dweights_proj(self, W, vin, r):
-        #v1 = np.copy(vin)
-        #v2 = np.copy(vin)
-        #
-        #r1 = self._sequence_b.call(W, v1)
-        #r2 = self._sequence_b.call(W, v2)
-        #
-        #r = np.hstack([r1, r2])
-        
-        dW = np.zeros_like(W[self._dispatcher])
-        for i in range(vin.shape[0]):
-            dW[:,i] = r
-        for j in range(r.shape[0]):
-            dW[j,:] *= vin
-        return dW
-    
-    def dvin_proj(self, W, vin, r):
         v1 = np.copy(vin)
         v2 = np.copy(vin)
         
-        r1 = self._sequence_b.call(W, v1)
+        r1 = self._sequence_a.call(W, v1)
         r2 = self._sequence_b.call(W, v2)
         
-        r = np.hstack([r1, r2])
-        return W[self._dispatcher].T @ r
+        forwarded = np.hstack([r1, r2])
+        
+        dW = np.zeros_like(W[self._dispatcher])
+        for i in range(forwarded.shape[0]):
+            dW[:,i] = r
+        for j in range(r.shape[0]):
+            dW[j,:] *= forwarded
+        yield dW
+
+        right = W[self._dispatcher].T @ r
+    
+        yield from self._sequence_b.dweights_proj(W, vin, right[self._sequence_a.nout:])
+        yield from self._sequence_a.dweights_proj(W, vin, right[:self._sequence_a.nout])
+    
+    def dvin_proj(self, W, vin, r):
+        vcomplete = W[self._dispatcher].T @ r
+        ra = vcomplete[:self._sequence_a.nout]
+        rb = vcomplete[self._sequence_a.nout:]
+
+        ra = self._sequence_a.dvin_proj(W, vin, ra)
+        rb = self._sequence_b.dvin_proj(W, vin, rb)
+
+        return ra + rb
         
     def generate_and_set_weightlist_dispatcher(self, cindex):
         yield from self._sequence_a.generate_and_set_weightlist_dispatcher(cindex)
@@ -285,10 +290,10 @@ class Model(SequenceLayer):
         right = (values[-1] - b)
         gradients = deque()
         for l, h in zip(reversed(self._layers), reversed(values[:-1])):
-            gradients.appendleft(l.dweights_proj(W, h, right))
+            gradients.extend(l.dweights_proj(W, h, right))
             right = l.dvin_proj(W, h, right)
     
-        return list(gradients)
+        return list(reversed(gradients))
 
 def gd(model, Winit, vin, b, eps=1e-5, alpha=1e-3, maxiter=1000):
     """
