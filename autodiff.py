@@ -278,9 +278,11 @@ class Model(SequenceLayer):
     #
     
     def cost(self, W, vin, b):
-        return np.linalg.norm(self.call(W, vin) - b)**2
+        if(not isinstance(vin, list)):
+            return np.linalg.norm(self.call(W, vin) - b)**2
+        return sum(np.linalg.norm(self.call(W, vini) - bi)**2 for vini, bi in zip(vin, b)) / len(vin)
     
-    def dcost(self, W, vin, b):
+    def dcostone(self, W, vin, b):
         # Forward propagation of values
         values = [vin]
         for l in self._layers:
@@ -294,6 +296,17 @@ class Model(SequenceLayer):
             right = l.dvin_proj(W, h, right)
     
         return list(reversed(gradients))
+
+    def dcost(self, W, vin, b):
+        if(not isinstance(vin, list)):
+            return self.dcostone(W, vin, b)
+        rescale = len(vin)
+        dW = self.dcostone(W, vin[0], b[0])
+        for vini, bi in zip(vin, b):
+            dWi = self.dcostone(W, vini, bi)
+            for j, dWij in enumerate(dWi):
+                dW[j] += dWij
+        return [wi / rescale for wi in dW]
 
 def gd(model, Winit, vin, b, eps=1e-5, alpha=1e-3, maxiter=1000):
     """
