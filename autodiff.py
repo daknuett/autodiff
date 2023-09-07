@@ -38,13 +38,40 @@ class Layer(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def generate_and_set_weightlist_dispatcher(self, cindex):
         pass
+
+    @abc.abstractmethod
+    def to_json(self):
+        pass
+
+    @classmethod 
+    def probe_json(cls, json_obj):
+        if("__type__" not in json_obj):
+            return False 
+        if(json_obj["__type__"] != cls.__name__):
+            return False
+        return True
+
+    @classmethod
+    def from_json(cls, json_obj):
+        if(cls.probe_json(json_obj)):
+            del(json_obj["__type__"])
+            return cls(**json_obj)
+
+        for subcls in cls.__subclasses__():
+            if(subcls.probe_json(json_obj)):
+                del(json_obj["__type__"])
+                return subcls(**json_obj)
     
 class MatrixLayer(Layer):
     def __init__(self, nin: int, nout: int):
         super().__init__()
         self._nin = nin
         self._nout = nout
-        #self._weights = self.random_weights()
+
+    def to_json(self):
+        return {"__type__": self.__class__.__name__
+                , "nin": self._nin
+                , "nout": self._nout}
         
     def random_weights(self):
         yield np.random.uniform(-1, 1, (self._nout, self._nin))
@@ -75,6 +102,10 @@ class ReluLayer(Layer):
     def __init__(self, nvals: int):
         super().__init__()
         self._nvals = nvals
+
+    def to_json(self):
+        return {"__type__": self.__class__.__name__
+                , "nvals": self._nvals}
         
     def random_weights(self):
         yield np.random.uniform(-1, 1, self._nvals)
@@ -103,6 +134,9 @@ class BiasLayer(Layer):
     def __init__(self, nvals: int):
         super().__init__()
         self._nvals = nvals
+    def to_json(self):
+        return {"__type__": self.__class__.__name__
+                , "nvals": self._nvals}
         
     def random_weights(self):
         yield np.random.uniform(-1, 1, self._nvals)
@@ -126,7 +160,14 @@ class BiasLayer(Layer):
 class SequenceLayer(Layer):
     def __init__(self, layers):
         super().__init__()
-        self._layers = layers
+        if(not isinstance(layers[0], Layer)):
+            self._layers = [Layer.from_json(l) for l in layers]
+        else:
+            self._layers = layers
+
+    def to_json(self):
+        return {"__type__": self.__class__.__name__
+                , "layers": [layer.to_json() for layer in self._layers]}
         
     def random_weights(self):
         for l in self._layers:
@@ -178,6 +219,9 @@ class IdentityLayer(Layer):
         super().__init__()
         self._npass = npass
     
+    def to_json(self):
+        return {"__type__": self.__class__.__name__
+                , "npass": self._npass}
     @property
     def nout(self):
         return self._npass
@@ -198,12 +242,27 @@ class IdentityLayer(Layer):
         yield self._dispatcher
         
 class ParallelLayer(Layer):
-    def __init__(self, nin, sequence_a: Layer, sequence_b: Layer):
+    def __init__(self, nin, sequence_a: typing.Union[Layer, dict], sequence_b: typing.Union[Layer, dict]):
         super().__init__()
         self._nin = nin
-        self._sequence_a = sequence_a
-        self._sequence_b = sequence_b
+
+        if(not isinstance(sequence_a, Layer)):
+            self._sequence_a = Layer.from_json(sequence_a)
+        else:
+            self._sequence_a = sequence_a
+
+        if(not isinstance(sequence_b, Layer)):
+            self._sequence_b = Layer.from_json(sequence_b)
+        else:
+            self._sequence_b = sequence_b
     
+    def to_json(self):
+        return {"__type__": self.__class__.__name__
+                , "nin": self._nin
+                , "sequence_a": self._sequence_a.to_json()
+                , "sequence_b": self._sequence_b.to_json()
+                }
+
     @property
     def nout(self):
         return self._nin
