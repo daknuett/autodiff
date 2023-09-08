@@ -2,7 +2,7 @@ from .autodiff import (
         gd, adam
         , Model
         , MatrixLayer, ReluLayer, BiasLayer
-        , SequenceLayer, ParallelLayer
+        , SequenceLayer, ParallelLayer, HeterogenousParallelLayer
         , IdentityLayer
         , Layer
         )
