@@ -6,3 +6,5 @@ from .autodiff import (
         , IdentityLayer
         , Layer
         )
+
+from .subsampling import SubsamplingLayer
