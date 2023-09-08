@@ -1,15 +1,16 @@
+import numpy
 from .autodiff import Layer
 
 class SubsamplingLayer(Layer):
     def __init__(self, sample):
         super().__init__()
-        self._sample = np.array(sample)
+        self._sample = numpy.array(sample)
 
     def random_weights(self):
-        yield np.array([0])
+        yield numpy.array([0])
     
     def dweights_proj(self, W, vin, r):
-        yield np.array([0])
+        yield numpy.array([0])
 
 
     @property
@@ -24,7 +25,7 @@ class SubsamplingLayer(Layer):
         return vin[self._sample]
 
     def dvin_proj(self, W, vin, r):
-        return np.copy(r)
+        return numpy.copy(r)
 
     def generate_and_set_weightlist_dispatcher(self, cindex):
         self._dispatcher = next(cindex)
