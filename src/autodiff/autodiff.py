@@ -376,7 +376,7 @@ class HeterogenousParallelLayer(Layer):
         res = 0
         acc_nout = 0
         for l in self._layers:
-            res += l.dvin_proj(W, vin, vcomplete[acc_nout:l.nout])
+            res += l.dvin_proj(W, vin, vcomplete[acc_nout:acc_nout + l.nout])
             acc_nout += l.nout
 
         return res
