@@ -320,6 +320,72 @@ class ParallelLayer(Layer):
         yield self._dispatcher
     
        
+class HeterogenousParallelLayer(Layer):
+    def __init__(self, nout, layers: typing.List[typing.Union[Layer, dict]]):
+        super().__init__()
+
+        self._layers = [l if isinstance(l, Layer) else Layer.from_json(l) for l in layers]
+        self._nout = nout
+        self._n_pre_merge = sum(l.nout for l in self._layers)
+    
+    def to_json(self):
+        return {"__type__": self.__class__.__name__
+                , "layers": [l.to_json() for l in self._layers]
+                , "nout": self._nout
+                }
+
+    @property
+    def nout(self):
+        return self._nout
+    
+    def call(self, W, vin):
+        parallel_results = [l.call(W, np.copy(vin)) for l in self._layers]
+        
+        r = np.hstack(parallel_results)
+        return  W[self._dispatcher] @ r
+        
+    def random_weights(self):
+        for l in self._layers:
+            yield from l.random_weights()
+        yield np.random.uniform(-1, 1, (self.nout, self._n_pre_merge))
+        
+    def dweights_proj(self, W, vin, r):
+        parallel_results = [l.call(W, np.copy(vin)) for l in self._layers]
+        
+        forwarded = np.hstack(parallel_results)
+        
+        dW = np.zeros_like(W[self._dispatcher])
+        for i in range(forwarded.shape[0]):
+            dW[:,i] = r
+        for j in range(r.shape[0]):
+            dW[j,:] *= forwarded
+        yield dW
+
+        right = W[self._dispatcher].T @ r
+    
+        n_outs = np.array([l.nout for l in self._layers])
+        n_outs_accumulated = np.cumsum(n_outs)
+
+        for l, (nout, nacc) in zip(reversed(self._layers),zip(reversed(n_outs), reversed(n_outs_accumulated))):
+            yield from l.dweights_proj(W, vin, right[nacc-nout:nacc])
+
+    
+    def dvin_proj(self, W, vin, r):
+        vcomplete = W[self._dispatcher].T @ r
+
+        res = 0
+        acc_nout = 0
+        for l in self._layers:
+            res += l.dvin_proj(W, vin, vcomplete[acc_nout:l.nout])
+            acc_nout += l.nout
+
+        return res
+        
+    def generate_and_set_weightlist_dispatcher(self, cindex):
+        for l in self._layers:
+            yield from l.generate_and_set_weightlist_dispatcher(cindex)
+        self._dispatcher = next(cindex)
+        yield self._dispatcher
 
 class Model(SequenceLayer):
     def __init__(self, layers: typing.List[Layer]):
