@@ -30,3 +30,9 @@ class SubsamplingLayer(Layer):
     def generate_and_set_weightlist_dispatcher(self, cindex):
         self._dispatcher = next(cindex)
         yield self._dispatcher
+
+    def get_dot_converter(self, cid):
+        dot_node_name = self.dot_get_node_name(cid)
+        dot_node_descr = f"{dot_node_name} [label=\"SubSample {len(self._sample)}\"]"
+        return (dot_node_name, dot_node_name, [dot_node_descr], [])
+

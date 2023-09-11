@@ -61,7 +61,18 @@ class Layer(metaclass=abc.ABCMeta):
             if(subcls.probe_json(json_obj)):
                 del(json_obj["__type__"])
                 return subcls(**json_obj)
+
+    def dot_get_node_name(self, cid: itertools.count):
+        return f"node{next(cid)}"
+
+    @abc.abstractmethod
+    def get_dot_converter(self, cid: itertools.count):
+        """
+        Returns ``(first_node, last_node, [nodes], [edges])``.
+        """
+        pass
     
+
 class MatrixLayer(Layer):
     def __init__(self, nin: int, nout: int):
         super().__init__()
@@ -97,11 +108,21 @@ class MatrixLayer(Layer):
     def generate_and_set_weightlist_dispatcher(self, cindex):
         self._dispatcher = next(cindex)
         yield self._dispatcher
+
+    def get_dot_converter(self, cid):
+        dot_node_name = self.dot_get_node_name(cid)
+        dot_node_descr = f"{dot_node_name} [label=\"Matrix {self._nout} x {self._nin}\"]"
+        return (dot_node_name, dot_node_name, [dot_node_descr], [])
     
 class ReluLayer(Layer):
     def __init__(self, nvals: int):
         super().__init__()
         self._nvals = nvals
+
+    def get_dot_converter(self, cid):
+        dot_node_name = self.dot_get_node_name(cid)
+        dot_node_descr = f"{dot_node_name} [label=\"ReLu {self._nvals}\"]"
+        return (dot_node_name, dot_node_name, [dot_node_descr], [])
 
     def to_json(self):
         return {"__type__": self.__class__.__name__
@@ -156,6 +177,12 @@ class BiasLayer(Layer):
     def generate_and_set_weightlist_dispatcher(self, cindex):
         self._dispatcher = next(cindex)
         yield self._dispatcher
+
+    def get_dot_converter(self, cid):
+        dot_node_name = self.dot_get_node_name(cid)
+        dot_node_descr = f"{dot_node_name} [label=\"Bias {self._nvals}\"]"
+        return (dot_node_name, dot_node_name, [dot_node_descr], [])
+
         
 class SequenceLayer(Layer):
     def __init__(self, layers):
@@ -213,12 +240,31 @@ class SequenceLayer(Layer):
     def generate_and_set_weightlist_dispatcher(self, cindex):
         for layer in self._layers:
             yield from layer.generate_and_set_weightlist_dispatcher(cindex)
+
+    def get_dot_converter(self, cid):
+        layer_dot_converters = [l.get_dot_converter(cid) for l in self._layers]
+        first_nodes = [child[0] for child in layer_dot_converters]
+        last_nodes = [child[1] for child in layer_dot_converters]
+
+        new_edges = [f"{l} -> {f}" for l,f in zip(last_nodes[:-1], first_nodes[1:])]
+
+        old_edges = [e for child in layer_dot_converters for e in child[3]] 
+
+        return (layer_dot_converters[0][0]
+                , layer_dot_converters[-1][1]
+                , [n for child in layer_dot_converters for n in child[2]]
+                , new_edges + old_edges)
         
 class IdentityLayer(Layer):
     def __init__(self, npass):
         super().__init__()
         self._npass = npass
     
+    def get_dot_converter(self, cid):
+        dot_node_name = self.dot_get_node_name(cid)
+        dot_node_descr = f"{dot_node_name} [shape=point]"
+        return (dot_node_name, dot_node_name, [dot_node_descr], [])
+
     def to_json(self):
         return {"__type__": self.__class__.__name__
                 , "npass": self._npass}
@@ -255,6 +301,22 @@ class ParallelLayer(Layer):
             self._sequence_b = Layer.from_json(sequence_b)
         else:
             self._sequence_b = sequence_b
+
+    def get_dot_converter(self, cid):
+        begin_split_name = self.dot_get_node_name(cid)
+        end_split_name = self.dot_get_node_name(cid)
+
+        begin_split = f"{begin_split_name} [shape=point]"
+        end_split = f"{end_split_name} [label=\"Matrix {self._nin} x {2*self._nin}\"]"
+        (first_a, last_a, nodes_a, edges_a) = self._sequence_a.get_dot_converter(cid)
+        (first_b, last_b, nodes_b, edges_b) = self._sequence_b.get_dot_converter(cid)
+
+        edges = [f"{begin_split_name} -> {first_a}", f"{begin_split_name} -> {first_b}"
+                 , f"{last_a} -> {end_split_name}", f"{last_b} -> {end_split_name}"]
+
+        return (begin_split_name, end_split_name
+                , [begin_split, end_split] + nodes_a + nodes_b
+                , edges + edges_a + edges_b)
     
     def to_json(self):
         return {"__type__": self.__class__.__name__
@@ -334,6 +396,24 @@ class HeterogenousParallelLayer(Layer):
                 , "nout": self._nout
                 }
 
+    def get_dot_converter(self, cid):
+        begin_split_name = self.dot_get_node_name(cid)
+        end_split_name = self.dot_get_node_name(cid)
+
+        begin_split = f"{begin_split_name} [shape=point]"
+        end_split = f"{end_split_name} [label=\"Matrix {self.nout} x {self._n_pre_merge}\"]"
+
+        layer_dot_converters = [l.get_dot_converter(cid) for l in self._layers]
+
+        edges_in = [f"{begin_split_name} -> {l[0]}" for l in layer_dot_converters]
+        edges_out = [f"{l[1]} -> {end_split_name}[label=\"{rl.nout}\"]" for l, rl in zip(layer_dot_converters, self._layers)]
+
+        edges_children = [e for child in layer_dot_converters for e in child[3]]
+        nodes_children = [n for child in layer_dot_converters for n in child[2]]
+
+        return (begin_split_name, end_split_name
+                , [begin_split, end_split] + nodes_children
+                , edges_in + edges_out + edges_children)
     @property
     def nout(self):
         return self._nout
@@ -401,6 +481,13 @@ class Model(SequenceLayer):
     #        v = l.call(w, v)
     #    return v
     #
+
+    def to_dot(self):
+        (first, last, nodes, edges) = self.get_dot_converter(itertools.count())
+        return "\n".join(("digraph G { "
+                    , "\n\t".join(nodes)
+                    , "\n\t".join(edges)
+                    , "}"))
     
     def cost(self, W, vin, b):
         if(not isinstance(vin, list)):
