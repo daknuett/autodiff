@@ -538,7 +538,7 @@ def gd(model, Winit, vin, b, eps=1e-5, alpha=1e-3, maxiter=1000):
     
     return W, (False, k)
 
-def adam(model, Winit, vin, b
+def adam(model: Model, Winit, vin, b
          , eps=1e-8, alpha=1e-3, beta1=0.9, beta2=0.999, maxiter=10_000):
     """
     @misc{kingma2017adam,
