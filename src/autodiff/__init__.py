@@ -8,3 +8,5 @@ from .autodiff import (
         )
 
 from .subsampling import SubsamplingLayer
+
+from .util import get_dof
