@@ -2,6 +2,12 @@ import numpy
 from .autodiff import Layer
 
 class SubsamplingLayer(Layer):
+    """
+    $F(v, W) = P_U v$ with projector $P_U$ on sub-space $U$.
+    Note that the sub-space projection only works on a cartesian sub-space.
+    The projector is given as a numpy array, where the elements of the array are 
+    a list of elements to pick.
+    """
     def __init__(self, sample):
         super().__init__()
         self._sample = numpy.array(sample)

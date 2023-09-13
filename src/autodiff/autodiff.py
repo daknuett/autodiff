@@ -12,6 +12,30 @@ from collections import deque
 import itertools
 
 class Layer(metaclass=abc.ABCMeta):
+    """
+    Abstract base class for all layers. It is a vector valued function
+    $ F(v; W) $ with input values $v$ and weights $W$.
+
+    Note that, after ``get_weightlist_dispatcher`` has been called, 
+    a layer will choose its weights from a list of weights automatically.
+
+    The documentation of ``model`` should be of special interest.
+
+    Important methods are:
+
+    ``dweights_proj(W, v, r)``
+        computes $\\sum_i r_i \\partial_W F_i(v; W)$
+    ``dvin_proj(W, v, r)``
+        computes $\\sum_i r_i \\partial_v F_i(v; W)$
+    ``call(W, v)``
+        computes $F(v; W)$
+
+    ``random_weights``
+        returns a generator for random weights
+    ``get_weightlist_dispatcher``
+        Get a dispatcher that maps a list of weights 
+        to the weights used by the layer.
+    """
     def __init__(self):
         self._dispatcher = None
     @abc.abstractmethod
@@ -74,6 +98,9 @@ class Layer(metaclass=abc.ABCMeta):
     
 
 class MatrixLayer(Layer):
+    """
+    $F(v; W) = Wv$ with matrix $W \\in \\mathbb{R}^{n_i \\times n_o}$.
+    """
     def __init__(self, nin: int, nout: int):
         super().__init__()
         self._nin = nin
@@ -115,6 +142,9 @@ class MatrixLayer(Layer):
         return (dot_node_name, dot_node_name, [dot_node_descr], [])
     
 class ReluLayer(Layer):
+    """
+    $F(v; W) = \\sum_i \\hat{e}_i W_i g(v_i)$ with vector $W$ and ReLu function $g$.
+    """
     def __init__(self, nvals: int):
         super().__init__()
         self._nvals = nvals
@@ -152,6 +182,9 @@ class ReluLayer(Layer):
         yield self._dispatcher
         
 class BiasLayer(Layer):
+    """
+    $F(v; W) = \\sum_i \\hat{e}_i (W_i + v_i)$.
+    """
     def __init__(self, nvals: int):
         super().__init__()
         self._nvals = nvals
@@ -185,6 +218,9 @@ class BiasLayer(Layer):
 
         
 class SequenceLayer(Layer):
+    """
+    Just a sequence of layers.
+    """
     def __init__(self, layers):
         super().__init__()
         if(not isinstance(layers[0], Layer)):
@@ -256,6 +292,9 @@ class SequenceLayer(Layer):
                 , new_edges + old_edges)
         
 class IdentityLayer(Layer):
+    """
+    $F(v; W) = v$.
+    """
     def __init__(self, npass):
         super().__init__()
         self._npass = npass
@@ -288,6 +327,11 @@ class IdentityLayer(Layer):
         yield self._dispatcher
         
 class ParallelLayer(Layer):
+    """
+    $F(v; W) = W \\left(\\begin{array}{c} f(v) \\\\ g(v) \\end{array}\\right)$$ 
+    where $v$ is an $n$ dimensional vector, $f,g$ are maps to $n$ 
+    dimensional vectors and $W$ is a $\\mathbb{R}^{n\\times 2n}$$ matrix.
+    """
     def __init__(self, nin, sequence_a: typing.Union[Layer, dict], sequence_b: typing.Union[Layer, dict]):
         super().__init__()
         self._nin = nin
@@ -383,6 +427,10 @@ class ParallelLayer(Layer):
     
        
 class HeterogenousParallelLayer(Layer):
+    """
+    Same as ``ParallelLayer`` but with a variable list of inner functions $f, g, ...$ and 
+    these functions can map to arbitrary dimensional vectors.
+    """
     def __init__(self, nout, layers: typing.List[typing.Union[Layer, dict]]):
         super().__init__()
 
@@ -468,6 +516,11 @@ class HeterogenousParallelLayer(Layer):
         yield self._dispatcher
 
 class Model(SequenceLayer):
+    """
+    Model that maps input vector $v$ with a list of weights $W$ 
+    to output vector $y$: $F(v; W)$.
+    The cost function is $C = ||F(v;W) - b||_2^2$.
+    """
     def __init__(self, layers: typing.List[Layer]):
         super().__init__(layers)
         self.get_weightlist_dispatcher()
@@ -522,7 +575,7 @@ class Model(SequenceLayer):
 
 def gd(model, Winit, vin, b, eps=1e-5, alpha=1e-3, maxiter=1000):
     """
-    Gradient decent. ``eps`` is the precision. ``alpha`` is the learn rate.
+    Gradient descend. ``eps`` is the precision. ``alpha`` is the learn rate.
 
     Returns ``(Weights, (converged, iterations))``.
     """
@@ -549,6 +602,8 @@ def adam(model: Model, Winit, vin, b
           archivePrefix={arXiv},
           primaryClass={cs.LG}
     }
+
+    Same return values as ``gd``.
     """
 
     m = [0 for w in Winit]
